@@ -1,0 +1,375 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { ConfigService } from '../config/config.service';
+import { SecretsService } from '../secrets/secrets.service';
+import type { Phase } from '../contracts/job';
+
+export type Usage = {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+export type AgentTurn = {
+  /** Everything the agent wrote as its final answer, joined from the text deltas. */
+  text: string;
+  usage: Usage;
+  toolCalls: number;
+  stoppedBecause: 'finished' | 'budget' | 'timeout';
+};
+
+export type TurnOptions = {
+  systemPrompt: string;
+  taskPrompt: string;
+  workDir: string;
+  /** Called on every harness event. This is the heartbeat. */
+  onPulse: (phase: Phase) => void;
+};
+
+const LISTENING = 'opencode server listening';
+
+@Injectable()
+export class OpenCodeService {
+  private readonly log = new Logger(OpenCodeService.name);
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly secrets: SecretsService,
+  ) {}
+
+  /**
+   * Run one agent turn, from an empty session to a final answer.
+   *
+   * Starts the server, opens a session, sends the prompt, and reads the event stream until
+   * the agent stops. The event stream is also the heartbeat source: every event proves the
+   * agent moved forward.
+   */
+  async runTurn(options: TurnOptions): Promise<AgentTurn> {
+    const { process: child, baseUrl } = await this.spawn(options.workDir);
+    try {
+      const sessionId = await this.createSession(baseUrl, options.workDir);
+      return await this.drive(baseUrl, sessionId, options);
+    } finally {
+      child.kill('SIGTERM');
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------
+
+  /**
+   * Start `opencode serve` as a child process.
+   *
+   * The environment is an explicit allowlist. We never spread `process.env`, because the
+   * agent runs shell commands and every variable of this process would be readable. That
+   * includes the task role path on AWS Fargate.
+   */
+  private async spawn(
+    workDir: string,
+  ): Promise<{ process: ChildProcess; baseUrl: string }> {
+    const apiKey = await this.secrets.modelApiKey();
+
+    const child = spawn(
+      'opencode',
+      [
+        'serve',
+        '--hostname',
+        '127.0.0.1',
+        '--port',
+        String(this.config.openCodePort),
+      ],
+      {
+        cwd: workDir,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          // OpenCode creates its state directories at import time. A read-only home makes
+          // the process fail before it prints anything useful.
+          HOME: process.env.HOME ?? '/home/agent',
+
+          // The target repository is untrusted input, exactly like the Sentry payload.
+          // Without the first two, OpenCode loads the repository's own configuration and
+          // its skills, and it writes three files into our clone. See gap 5 in GAPS.md.
+          OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
+          OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+          OPENCODE_DISABLE_AUTOUPDATE: 'true',
+          OPENCODE_DISABLE_MODELS_FETCH: 'true',
+
+          // The whole configuration travels inline, so nothing on disk can change it.
+          OPENCODE_CONFIG_CONTENT: JSON.stringify(this.buildConfig(apiKey)),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    const baseUrl = await this.waitForListening(child);
+    this.log.log(`OpenCode is listening on ${baseUrl}`);
+    return { process: child, baseUrl };
+  }
+
+  /**
+   * Wait for the line the server prints when it is ready.
+   *
+   * The official helper waits 5 seconds. A cold container needs longer, so we wait 60.
+   */
+  private waitForListening(
+    child: ChildProcess,
+    timeoutMs = 60_000,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let buffer = '';
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `OpenCode did not start within ${timeoutMs} milliseconds.`,
+            ),
+          ),
+        timeoutMs,
+      );
+
+      const read = (chunk: Buffer) => {
+        buffer += chunk.toString();
+        for (const line of buffer.split('\n')) {
+          if (!line.startsWith(LISTENING)) continue;
+          const match = /on\s+(https?:\/\/[^\s]+)/.exec(line);
+          if (!match) continue;
+          clearTimeout(timer);
+          resolve(match[1]);
+          return;
+        }
+      };
+
+      child.stdout?.on('data', read);
+      child.stderr?.on('data', read);
+      child.once('exit', (code) => {
+        clearTimeout(timer);
+        reject(
+          new Error(`OpenCode exited with code ${code} before it listened.`),
+        );
+      });
+    });
+  }
+
+  /**
+   * The configuration scout gives OpenCode.
+   *
+   * Two rules decide the shape of the permission block, and both were proved by running
+   * the binary.
+   *
+   * 1. The wildcard must come first. The merge keeps a key where it first appeared, so a
+   *    wildcard written last denies everything.
+   * 2. A tool is removed only by the plain string `"deny"`. A pattern map leaves the tool
+   *    visible to the model and blocks it at call time instead.
+   *
+   * Never write `"ask"`. In server mode an `ask` rule waits for an answer that cannot
+   * arrive, and the wait has no timeout. `doom_loop` defaults to `"ask"`, so we must set
+   * it. See gap 4 in GAPS.md.
+   */
+  private buildConfig(apiKey: string | undefined): Record<string, unknown> {
+    const model = this.config.model;
+    return {
+      permission: {
+        '*': 'deny',
+        read: { '*': 'allow', '*.env': 'deny', '*.env.*': 'deny' },
+        glob: 'allow',
+        grep: 'allow',
+        bash: 'deny',
+        edit: 'deny',
+        write: 'deny',
+        webfetch: 'deny',
+        task: 'deny',
+        skill: 'deny',
+        question: 'deny',
+        doom_loop: 'deny',
+      },
+      share: 'disabled',
+      autoupdate: false,
+      provider: {
+        [model.providerId]: {
+          npm: model.npm,
+          name: model.providerId,
+          options: { baseURL: model.baseUrl, ...(apiKey ? { apiKey } : {}) },
+          models: { [model.modelId]: { name: model.modelId, tool_call: true } },
+        },
+      },
+    };
+  }
+
+  private async createSession(
+    baseUrl: string,
+    workDir: string,
+  ): Promise<string> {
+    const response = await fetch(`${baseUrl}/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-opencode-directory': workDir,
+      },
+      body: JSON.stringify({ title: 'scout' }),
+    });
+    if (!response.ok)
+      throw new Error(`Could not create a session: HTTP ${response.status}`);
+    const session = (await response.json()) as { id: string };
+    return session.id;
+  }
+
+  /**
+   * Send the prompt and read the event stream until the agent stops.
+   *
+   * We use the v2 routes. They carry named events for each tool call, and the per-session
+   * stream can resume after a restart. They have no schema-constrained output, so the
+   * agent writes the JSON object in its final message and scout validates it. See gap 2 in
+   * GAPS.md.
+   */
+  private async drive(
+    baseUrl: string,
+    sessionId: string,
+    options: TurnOptions,
+  ): Promise<AgentTurn> {
+    const usage: Usage = {
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    };
+    let text = '';
+    let toolCalls = 0;
+    let stoppedBecause: AgentTurn['stoppedBecause'] = 'finished';
+
+    const controller = new AbortController();
+    const deadline = setTimeout(() => {
+      stoppedBecause = 'timeout';
+      void this.interrupt(baseUrl, sessionId);
+      controller.abort();
+    }, this.config.maxRunMs);
+
+    const stream = await fetch(`${baseUrl}/api/session/${sessionId}/event`, {
+      headers: {
+        Accept: 'text/event-stream',
+        'x-opencode-directory': options.workDir,
+      },
+      signal: controller.signal,
+    });
+    if (!stream.ok || !stream.body)
+      throw new Error(`Could not open the event stream: HTTP ${stream.status}`);
+
+    // Send the prompt after the stream is open, so no event is lost.
+    await this.prompt(baseUrl, sessionId, options);
+
+    let idleSince: number | null = null;
+    try {
+      for await (const event of this.readEvents(stream.body)) {
+        const type = String(event.type ?? '');
+        const data = (event.data ?? {}) as Record<string, any>;
+
+        // Every event is a heartbeat. The phase decides how long silence may last.
+        options.onPulse(type.includes('tool') ? 'agent:tool' : 'agent:model');
+
+        if (type === 'session.next.tool.called') {
+          toolCalls += 1;
+          if (toolCalls > this.config.maxToolCalls) {
+            stoppedBecause = 'budget';
+            await this.interrupt(baseUrl, sessionId);
+          }
+        } else if (type === 'session.next.text.delta') {
+          text += String(data.delta ?? '');
+        } else if (type === 'session.next.step.ended') {
+          // The v2 tokens object has no `total` key. Sum the parts.
+          const t = (data.tokens ?? {}) as Record<string, any>;
+          usage.input += Number(t.input ?? 0);
+          usage.output += Number(t.output ?? 0);
+          usage.reasoning += Number(t.reasoning ?? 0);
+          usage.cacheRead += Number(t.cache?.read ?? 0);
+          usage.cacheWrite += Number(t.cache?.write ?? 0);
+
+          if (usage.input + usage.output > this.config.maxTokens) {
+            stoppedBecause = 'budget';
+            await this.interrupt(baseUrl, sessionId);
+          }
+        }
+
+        // `session.idle` can arrive before the last tool settles. Wait for a quiet period
+        // rather than closing the stream on the first idle event.
+        if (type === 'session.idle' || type === 'session.status') {
+          const isIdle =
+            type === 'session.idle' || data.status?.type === 'idle';
+          idleSince = isIdle ? Date.now() : null;
+        } else if (!type.startsWith('server.')) {
+          idleSince = null;
+        }
+
+        if (idleSince !== null && Date.now() - idleSince > 2_000) break;
+      }
+    } catch (error) {
+      if (stoppedBecause === 'finished') throw error;
+    } finally {
+      clearTimeout(deadline);
+      controller.abort();
+    }
+
+    return { text, usage, toolCalls, stoppedBecause };
+  }
+
+  private async prompt(
+    baseUrl: string,
+    sessionId: string,
+    options: TurnOptions,
+  ): Promise<void> {
+    const model = this.config.model;
+    const response = await fetch(`${baseUrl}/api/session/${sessionId}/prompt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-opencode-directory': options.workDir,
+      },
+      body: JSON.stringify({
+        prompt: {
+          text: `${options.systemPrompt}\n\n---\n\n${options.taskPrompt}`,
+        },
+        model: { providerID: model.providerId, modelID: model.modelId },
+      }),
+    });
+    if (!response.ok)
+      throw new Error(`The prompt call failed: HTTP ${response.status}`);
+  }
+
+  private async interrupt(baseUrl: string, sessionId: string): Promise<void> {
+    await fetch(`${baseUrl}/api/session/${sessionId}/interrupt`, {
+      method: 'POST',
+    }).catch(() => undefined);
+  }
+
+  /**
+   * Read a Server-Sent Events body.
+   *
+   * The framing carries no `event:` line and no `id:` line. Every message is `data: <json>`
+   * followed by a blank line, so we route on the JSON `type` field.
+   */
+  private async *readEvents(
+    body: ReadableStream<Uint8Array>,
+  ): AsyncGenerator<Record<string, unknown>> {
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let split: number;
+      while ((split = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            yield JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
+          } catch {
+            this.log.warn(
+              `Could not parse an event frame: ${line.slice(0, 120)}`,
+            );
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,31 +1,29 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "apps/breakfix-app/src",
+  "sourceRoot": "apps/scout/src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "webpack": true,
-    "tsConfigPath": "apps/breakfix-app/tsconfig.app.json"
+    "webpack": false,
+    "tsConfigPath": "apps/scout/tsconfig.app.json"
   },
   "monorepo": true,
-  "root": "apps/breakfix-app",
+  "root": "apps/scout",
   "projects": {
-    "breakfix-app": {
-      "type": "application",
-      "root": "apps/breakfix-app",
-      "entryFile": "main",
-      "sourceRoot": "apps/breakfix-app/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/breakfix-app/tsconfig.app.json"
-      }
-    },
     "scout": {
       "type": "application",
       "root": "apps/scout",
       "entryFile": "main",
       "sourceRoot": "apps/scout/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/scout/tsconfig.app.json"
+        "tsConfigPath": "apps/scout/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "../prompts/**/*.md",
+            "outDir": "dist/apps/scout/prompts",
+            "watchAssets": true
+          }
+        ]
       }
     }
   }
