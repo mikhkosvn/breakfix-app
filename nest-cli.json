@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/breakfix-app/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/breakfix-app/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/breakfix-app",
+  "projects": {
+    "breakfix-app": {
+      "type": "application",
+      "root": "apps/breakfix-app",
+      "entryFile": "main",
+      "sourceRoot": "apps/breakfix-app/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/breakfix-app/tsconfig.app.json"
+      }
+    },
+    "scout": {
+      "type": "application",
+      "root": "apps/scout",
+      "entryFile": "main",
+      "sourceRoot": "apps/scout/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/scout/tsconfig.app.json"
+      }
+    }
+  }
+}
