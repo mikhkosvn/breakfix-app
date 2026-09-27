@@ -59,8 +59,5 @@ export type ScoutReport = z.infer<typeof ScoutReport>;
  * never drift apart.
  */
 export function scoutReportJsonSchema(): Record<string, unknown> {
-  return z.toJSONSchema(ScoutReport, { io: 'output' }) as Record<
-    string,
-    unknown
-  >;
+  return z.toJSONSchema(ScoutReport, { io: 'output' });
 }

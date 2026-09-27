@@ -61,7 +61,7 @@ export class SecretsService {
    * Not implemented yet. Scout runs against a `.env` file until it reaches Fargate. The
    * import stays dynamic so local development needs no AWS package.
    */
-  private async fromSecretsManager(secretId: string): Promise<string> {
+  private fromSecretsManager(secretId: string): Promise<string> {
     this.log.error(
       `Secrets Manager is not wired yet. Cannot read ${secretId}.`,
     );

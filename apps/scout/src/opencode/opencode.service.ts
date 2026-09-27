@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { ConfigService } from '../config/config.service';
 import { SecretsService } from '../secrets/secrets.service';
 import type { Phase } from '../contracts/job';
+import { parseEvent, phaseOf } from './events';
 
 export type Usage = {
   input: number;
@@ -133,9 +134,10 @@ export class OpenCodeService {
         for (const line of buffer.split('\n')) {
           if (!line.startsWith(LISTENING)) continue;
           const match = /on\s+(https?:\/\/[^\s]+)/.exec(line);
-          if (!match) continue;
+          const url = match?.[1];
+          if (!url) continue;
           clearTimeout(timer);
-          resolve(match[1]);
+          resolve(url);
           return;
         }
       };
@@ -260,43 +262,51 @@ export class OpenCodeService {
 
     let idleSince: number | null = null;
     try {
-      for await (const event of this.readEvents(stream.body)) {
-        const type = String(event.type ?? '');
-        const data = (event.data ?? {}) as Record<string, any>;
+      for await (const frame of this.readEvents(stream.body)) {
+        const event = parseEvent(frame);
+        if (!event) continue;
 
         // Every event is a heartbeat. The phase decides how long silence may last.
-        options.onPulse(type.includes('tool') ? 'agent:tool' : 'agent:model');
+        options.onPulse(phaseOf(event.type));
 
-        if (type === 'session.next.tool.called') {
-          toolCalls += 1;
-          if (toolCalls > this.config.maxToolCalls) {
-            stoppedBecause = 'budget';
-            await this.interrupt(baseUrl, sessionId);
-          }
-        } else if (type === 'session.next.text.delta') {
-          text += String(data.delta ?? '');
-        } else if (type === 'session.next.step.ended') {
-          // The v2 tokens object has no `total` key. Sum the parts.
-          const t = (data.tokens ?? {}) as Record<string, any>;
-          usage.input += Number(t.input ?? 0);
-          usage.output += Number(t.output ?? 0);
-          usage.reasoning += Number(t.reasoning ?? 0);
-          usage.cacheRead += Number(t.cache?.read ?? 0);
-          usage.cacheWrite += Number(t.cache?.write ?? 0);
+        switch (event.known?.type) {
+          case 'session.next.tool.called':
+            toolCalls += 1;
+            if (toolCalls > this.config.maxToolCalls) {
+              stoppedBecause = 'budget';
+              await this.interrupt(baseUrl, sessionId);
+            }
+            break;
 
-          if (usage.input + usage.output > this.config.maxTokens) {
-            stoppedBecause = 'budget';
-            await this.interrupt(baseUrl, sessionId);
+          case 'session.next.text.delta':
+            text += event.known.data.delta;
+            break;
+
+          case 'session.next.step.ended': {
+            // The v2 tokens object has no `total` key. Sum the parts.
+            const tokens = event.known.data.tokens;
+            usage.input += tokens.input ?? 0;
+            usage.output += tokens.output ?? 0;
+            usage.reasoning += tokens.reasoning ?? 0;
+            usage.cacheRead += tokens.cache?.read ?? 0;
+            usage.cacheWrite += tokens.cache?.write ?? 0;
+
+            if (usage.input + usage.output > this.config.maxTokens) {
+              stoppedBecause = 'budget';
+              await this.interrupt(baseUrl, sessionId);
+            }
+            break;
           }
         }
 
         // `session.idle` can arrive before the last tool settles. Wait for a quiet period
         // rather than closing the stream on the first idle event.
-        if (type === 'session.idle' || type === 'session.status') {
-          const isIdle =
-            type === 'session.idle' || data.status?.type === 'idle';
-          idleSince = isIdle ? Date.now() : null;
-        } else if (!type.startsWith('server.')) {
+        if (event.type === 'session.idle') {
+          idleSince = Date.now();
+        } else if (event.known?.type === 'session.status') {
+          idleSince =
+            event.known.data.status?.type === 'idle' ? Date.now() : null;
+        } else if (!event.type.startsWith('server.')) {
           idleSince = null;
         }
 

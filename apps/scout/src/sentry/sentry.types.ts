@@ -137,10 +137,10 @@ export function revisionOf(event: SentryEvent): string | null {
   const isSha = (s: string | null | undefined): s is string =>
     !!s && /^[0-9a-f]{40}$/i.test(s);
 
-  if (isSha(release.lastCommit?.id)) return release.lastCommit!.id;
+  if (isSha(release.lastCommit?.id)) return release.lastCommit.id;
   if (isSha(release.ref)) return release.ref;
   if (isSha(release.version)) return release.version;
   if (isSha(release.versionInfo?.buildHash))
-    return release.versionInfo!.buildHash!;
+    return release.versionInfo.buildHash;
   return null;
 }
