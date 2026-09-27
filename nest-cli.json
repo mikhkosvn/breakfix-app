@@ -3,7 +3,7 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "apps/scout/src",
   "compilerOptions": {
-    "deleteOutDir": true,
+    "deleteOutDir": false,
     "webpack": false,
     "tsConfigPath": "apps/scout/tsconfig.app.json"
   },
@@ -21,6 +21,22 @@
           {
             "include": "../prompts/**/*.md",
             "outDir": "dist/apps/scout/prompts",
+            "watchAssets": true
+          }
+        ]
+      }
+    },
+    "triage": {
+      "type": "application",
+      "root": "apps/triage",
+      "entryFile": "main",
+      "sourceRoot": "apps/triage/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/triage/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "db/*.sql",
+            "outDir": "dist/apps/triage",
             "watchAssets": true
           }
         ]

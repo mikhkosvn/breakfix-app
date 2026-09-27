@@ -98,3 +98,47 @@ git diff -U0 | grep -E '^\+[^+]' | grep -E '//|/\*|<!--|(^|[[:space:]])#'
 
 The command reports every added line that holds comment syntax. It also reports false
 matches, such as a URL or a string. Read each match. Delete every match that is a comment.
+
+## Rule 7 — Never write a test
+
+Do not write a test in this repository. Do not create a test file. Do not add a test case to a
+file that already exists.
+
+This rule has no exception. Difficult code does not earn a test. A defect that you repaired does
+not earn a test. A request to "make sure it works" does not ask you for a test.
+
+## Rule 8 — What counts as a test
+
+The ban covers every automated check, under every name.
+
+| Form | Banned examples |
+|---|---|
+| Test file | `*.spec.ts`, `*.test.ts`, `*.e2e-spec.ts`, any file in a `test/`, `tests/`, or `__tests__` folder |
+| Test function | `describe`, `it`, `test`, `beforeEach`, `afterEach`, `beforeAll`, `afterAll` |
+| Assertion | `expect(...)`, `assert(...)`, and any assertion library |
+| Test double | `jest.mock`, `jest.fn`, `jest.spyOn`, a stub, a fake, or a fixture that exists for a test only |
+| Snapshot | `toMatchSnapshot`, and any `__snapshots__` folder |
+| Runner configuration | a `jest` block in `package.json`, `jest.config.*`, `vitest.config.*`, a `test` script |
+| Throwaway script | a file whose only purpose is to prove that other code works |
+
+A linter and a type checker are not tests. `eslint` and `tsc` stay.
+
+## Rule 9 — What to do instead of a test
+
+Read the code and make it correct. Then report two things to the user.
+
+1. What you changed.
+2. What you did not verify.
+
+Write the second part plainly. "I did not run this against a real database" is a correct report.
+Name each limit of what you observed. Never report a result that you did not see.
+
+## Rule 10 — Check your work before you report it
+
+Run this command before you report the work as complete.
+
+```bash
+git status --porcelain | grep -E '\.(spec|test|e2e-spec)\.(ts|js)$|__tests__|__snapshots__'
+```
+
+The command must print nothing. One line of output means you broke Rule 7. Delete that file.

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConfigService } from './config/config.service';
@@ -18,8 +18,6 @@ import {
 
 @Injectable()
 export class ScoutService {
-  private readonly log = new Logger(ScoutService.name);
-
   constructor(
     private readonly config: ConfigService,
     private readonly secrets: SecretsService,
@@ -32,7 +30,6 @@ export class ScoutService {
     let phase: Phase = 'starting';
     const beat = (next: Phase) => {
       phase = next;
-      this.pulse(job.runId, next);
     };
 
     const empty = {
@@ -168,10 +165,6 @@ export class ScoutService {
       }
 
       beat('publish');
-      this.log.log(
-        `Run ${job.runId} finished. ${turn.toolCalls} tool calls, ` +
-          `${turn.usage.input + turn.usage.output} tokens, stopped because ${turn.stoppedBecause}.`,
-      );
 
       return {
         runId: job.runId,
@@ -184,7 +177,6 @@ export class ScoutService {
       };
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error);
-      this.log.error(`Run ${job.runId} failed in phase ${phase}: ${failure}`);
       return {
         runId: job.runId,
         issueId: job.issueId,
@@ -195,10 +187,6 @@ export class ScoutService {
         toolCalls: 0,
       };
     }
-  }
-
-  private pulse(runId: string, phase: Phase): void {
-    this.log.debug(`${runId} -> ${phase}`);
   }
 
   private async prompt(name: string): Promise<string> {

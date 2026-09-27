@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 
 export type RepoConfig = {
@@ -31,7 +31,6 @@ const EnvSchema = z.object({
 
 @Injectable()
 export class ConfigService {
-  private readonly log = new Logger(ConfigService.name);
   private readonly env: z.infer<typeof EnvSchema>;
 
   private readonly repos: Record<string, RepoConfig> = {};
@@ -45,9 +44,6 @@ export class ConfigService {
       throw new Error(`Configuration is not valid:\n${lines.join('\n')}`);
     }
     this.env = parsed.data;
-    this.log.log(
-      `Configuration loaded. ${Object.keys(this.repos).length} repositories mapped.`,
-    );
   }
 
   get port(): number {
