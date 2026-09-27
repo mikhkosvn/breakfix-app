@@ -1,9 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { ScoutModule } from './scout.module';
+import { TriageModule } from './triage.module';
 import { ConfigService } from './config/config.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(ScoutModule);
+  const app = await NestFactory.create(TriageModule);
   const config = app.get(ConfigService);
 
   app.enableShutdownHooks();

@@ -8,18 +8,6 @@ export class SecretsService {
     return this.read('SENTRY_TOKEN', 'breakfix/sentry');
   }
 
-  async githubToken(): Promise<string> {
-    return this.read('GITHUB_TOKEN', 'breakfix/github');
-  }
-
-  async modelApiKey(): Promise<string | undefined> {
-    try {
-      return await this.read('MODEL_API_KEY', 'breakfix/model');
-    } catch {
-      return undefined;
-    }
-  }
-
   private async read(envName: string, secretId: string): Promise<string> {
     const cached = this.cache.get(secretId);
     if (cached) return cached;
@@ -37,11 +25,13 @@ export class SecretsService {
     }
 
     throw new Error(
-      `Secret ${secretId} is missing. Set ${envName} in your .env file, or run with NODE_ENV=production.`,
+      `Secret ${secretId} is missing. Set ${envName} in your .env file. As a second option, set NODE_ENV to production and store the secret in Amazon Web Services (AWS) Secrets Manager.`,
     );
   }
 
   private fromSecretsManager(secretId: string): Promise<string> {
-    throw new Error(`Secrets Manager is not implemented. Secret: ${secretId}`);
+    throw new Error(
+      `Amazon Web Services (AWS) Secrets Manager is not implemented. Secret: ${secretId}`,
+    );
   }
 }

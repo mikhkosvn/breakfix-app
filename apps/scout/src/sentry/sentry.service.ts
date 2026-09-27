@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { SecretsService } from '../secrets/secrets.service';
 import type { SentryEvent, SentryIssue } from './sentry.types';
@@ -7,8 +7,6 @@ export type EventSelector = 'latest' | 'oldest' | 'recommended' | (string & {});
 
 @Injectable()
 export class SentryService {
-  private readonly log = new Logger(SentryService.name);
-
   constructor(
     private readonly config: ConfigService,
     private readonly secrets: SecretsService,
@@ -80,9 +78,6 @@ export class SentryService {
     if (response.status === 429 && attempt <= 3) {
       const waitMs =
         Number(response.headers.get('retry-after') ?? 1) * 1000 * attempt;
-      this.log.warn(
-        `Sentry answered 429. Waiting ${waitMs} milliseconds, then attempt ${attempt + 1}.`,
-      );
       await new Promise((resolve) => setTimeout(resolve, waitMs));
       return this.get<T>(path, attempt + 1);
     }

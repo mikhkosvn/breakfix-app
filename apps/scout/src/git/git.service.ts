@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { rm, mkdir } from 'node:fs/promises';
@@ -13,8 +13,6 @@ export type CloneResult = {
 
 @Injectable()
 export class GitService {
-  private readonly log = new Logger(GitService.name);
-
   async clone(
     repoDir: string,
     repoUrl: string,
@@ -26,14 +24,16 @@ export class GitService {
     await this.git(['clone', '--filter=blob:none', repoUrl, repoDir]);
 
     if (revision) {
-      try {
-        await this.git(['-C', repoDir, 'checkout', '--detach', revision]);
-        return { dir: repoDir, revision, exact: true };
-      } catch {
-        this.log.warn(
-          `Commit ${revision} is unknown in this repository. Using the default branch.`,
-        );
-      }
+      const checkedOut = await this.git([
+        '-C',
+        repoDir,
+        'checkout',
+        '--detach',
+        revision,
+      ])
+        .then(() => true)
+        .catch(() => false);
+      if (checkedOut) return { dir: repoDir, revision, exact: true };
     }
 
     const head = (await this.git(['-C', repoDir, 'rev-parse', 'HEAD'])).trim();

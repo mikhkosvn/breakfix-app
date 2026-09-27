@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { ConfigService } from '../config/config.service';
 import { SecretsService } from '../secrets/secrets.service';
@@ -31,8 +31,6 @@ const LISTENING = 'opencode server listening';
 
 @Injectable()
 export class OpenCodeService {
-  private readonly log = new Logger(OpenCodeService.name);
-
   constructor(
     private readonly config: ConfigService,
     private readonly secrets: SecretsService,
@@ -80,7 +78,6 @@ export class OpenCodeService {
     );
 
     const baseUrl = await this.waitForListening(child);
-    this.log.log(`OpenCode is listening on ${baseUrl}`);
     return { process: child, baseUrl };
   }
 
@@ -308,13 +305,13 @@ export class OpenCodeService {
         buffer = buffer.slice(split + 2);
         for (const line of frame.split('\n')) {
           if (!line.startsWith('data:')) continue;
+          let event: Record<string, unknown>;
           try {
-            yield JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
+            event = JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
           } catch {
-            this.log.warn(
-              `Could not parse an event frame: ${line.slice(0, 120)}`,
-            );
+            continue;
           }
+          yield event;
         }
       }
     }

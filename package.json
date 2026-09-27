@@ -6,24 +6,28 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build scout",
+    "build": "nest build scout && nest build triage",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start scout",
     "start:dev": "nest start scout --watch",
     "start:debug": "nest start scout --debug --watch",
     "start:prod": "node dist/apps/scout/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/breakfix-app/test/jest-e2e.json"
+    "lint": "eslint \"apps/**/*.ts\" --fix",
+    "build:scout": "nest build scout",
+    "build:triage": "nest build triage",
+    "start:triage": "nest start triage",
+    "start:triage:dev": "nest start triage --watch",
+    "start:triage:prod": "node dist/apps/triage/main"
   },
   "dependencies": {
+    "@aws-sdk/client-batch": "3.1141.0",
     "@nestjs/common": "12.1.0",
     "@nestjs/config": "12.0.1",
     "@nestjs/core": "12.1.0",
     "@nestjs/platform-express": "12.1.0",
+    "@nestjs/schedule": "12.0.2",
+    "cron": "4.4.0",
+    "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "4.6.5"
@@ -35,42 +39,18 @@
     "@nestjs/schematics": "12.0.5",
     "@nestjs/testing": "12.1.0",
     "@types/express": "5.0.6",
-    "@types/jest": "30.0.0",
     "@types/node": "26.6.3",
-    "@types/supertest": "7.2.1",
+    "@types/pg": "8.23.1",
     "eslint": "10.11.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-prettier": "5.5.6",
     "globals": "17.12.0",
-    "jest": "30.5.2",
     "prettier": "3.9.9",
     "source-map-support": "0.5.21",
-    "supertest": "7.3.0",
-    "ts-jest": "29.4.14",
     "ts-loader": "9.6.2",
     "ts-node": "10.9.2",
     "tsconfig-paths": "4.2.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.1"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": ".",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "./coverage",
-    "testEnvironment": "node",
-    "roots": [
-      "<rootDir>/apps/"
-    ]
   }
 }
