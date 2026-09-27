@@ -7,15 +7,7 @@ const run = promisify(execFile);
 
 export type CloneResult = {
   dir: string;
-  /** The commit the working tree holds. */
   revision: string;
-  /**
-   * True when we checked out the commit the caller asked for.
-   *
-   * False means the commit was unknown, so we fall back to the default branch. Every line
-   * number from the stack trace is then unverified, and the agent must check each one
-   * against the source line Sentry recorded.
-   */
   exact: boolean;
 };
 
@@ -23,16 +15,6 @@ export type CloneResult = {
 export class GitService {
   private readonly log = new Logger(GitService.name);
 
-  /**
-   * Clone one repository and check out one commit.
-   *
-   * Uses a partial clone, not a shallow clone. `--filter=blob:none` downloads every commit
-   * and every tree, and no file contents. Git fetches a file only when something reads it.
-   *
-   * A shallow clone would be smaller, and it would break `git blame` for any line older
-   * than the clone depth. Scout needs blame to answer "when did this line last change",
-   * which is how it tells a code change from a data change.
-   */
   async clone(
     repoDir: string,
     repoUrl: string,
@@ -58,7 +40,6 @@ export class GitService {
     return { dir: repoDir, revision: head, exact: false };
   }
 
-  /** The date one line last changed, as an ISO string. Null when the line has no history. */
   async lineLastChanged(
     repoDir: string,
     path: string,
@@ -81,14 +62,12 @@ export class GitService {
     }
   }
 
-  /** True when the working tree holds no change. The agent must not write any file. */
   async isClean(repoDir: string): Promise<boolean> {
     const out = await this.git(['-C', repoDir, 'status', '--porcelain']);
     return out.trim().length === 0;
   }
 
   private async git(args: string[]): Promise<string> {
-    // `core.hooksPath=/dev/null` stops a repository hook running on our machine.
     const { stdout } = await run(
       'git',
       ['-c', 'core.hooksPath=/dev/null', ...args],

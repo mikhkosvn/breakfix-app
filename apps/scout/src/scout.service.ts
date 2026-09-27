@@ -28,12 +28,6 @@ export class ScoutService {
     private readonly opencode: OpenCodeService,
   ) {}
 
-  /**
-   * Investigate one Sentry issue.
-   *
-   * Every step reports a phase. The phase is the heartbeat, and it is also the answer to
-   * "where did this run stop" when something fails.
-   */
   async run(job: ScoutJob): Promise<ScoutResult> {
     let phase: Phase = 'starting';
     const beat = (next: Phase) => {
@@ -54,12 +48,9 @@ export class ScoutService {
       const ctxDir = join(workDir, 'ctx');
       const repoDir = join(workDir, 'repo');
 
-      // Clear the workspace at the START of a run, never at the end. A crashed run leaves
-      // files behind, and the next run must not read them.
       await rm(workDir, { recursive: true, force: true });
       await mkdir(ctxDir, { recursive: true });
 
-      // 1. Read Sentry.
       beat('sentry');
       const issue = await this.sentry.issue(job.issueId);
       const repo = this.config.repoForProject(issue.project.slug);
@@ -77,13 +68,11 @@ export class ScoutService {
       const revision = revisionOf(event);
       const traceId = traceIdOf(event);
 
-      // 2. Clone the code that was running when it crashed.
       beat('clone');
       const token = await this.secrets.githubToken();
       const url = `https://x-access-token:${token}@github.com/${repo.repo}.git`;
       const clone = await this.git.clone(repoDir, url, revision);
 
-      // 3. Collect the evidence files.
       beat('collect');
       const missing: string[] = [];
       const write = async (name: string, value: unknown) =>
@@ -121,8 +110,6 @@ export class ScoutService {
         project: issue.project.slug,
         repo: repo.repo,
         revision: clone.revision,
-        // False means the commit Sentry named was unknown. Every line number is then a
-        // guess, and the agent must check each one against `entry_point.context_line`.
         revisionIsExact: clone.exact,
         requestedRevision: revision,
         traceId,
@@ -144,7 +131,6 @@ export class ScoutService {
         collectedAt: new Date().toISOString(),
       });
 
-      // 4. Run the agent.
       beat('agent:model');
       const systemPrompt = await this.prompt('scout.system.md');
       const taskPrompt = (await this.prompt('scout.task.md'))
@@ -159,7 +145,6 @@ export class ScoutService {
         onPulse: (p) => beat(p),
       });
 
-      // 5. Validate. OpenCode checks nothing, so this step is the only check.
       beat('validate');
       if (!(await this.git.isClean(repoDir))) {
         throw new Error('The agent changed a file. Scout must read only.');
@@ -200,8 +185,6 @@ export class ScoutService {
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error);
       this.log.error(`Run ${job.runId} failed in phase ${phase}: ${failure}`);
-      // A half report on a real bug beats silence. The caller still publishes, and it says
-      // which phase stopped the run.
       return {
         runId: job.runId,
         issueId: job.issueId,
@@ -214,22 +197,14 @@ export class ScoutService {
     }
   }
 
-  /** Update the heartbeat. Writes to a database once triage owns the incident table. */
   private pulse(runId: string, phase: Phase): void {
     this.log.debug(`${runId} -> ${phase}`);
   }
 
-  /**
-   * Read one prompt file.
-   *
-   * The directory sits one level up in `src` and beside the file in `dist`, so we try
-   * both. Never build a prompt by joining strings: the prompt is a constant, and only
-   * typed values fill its placeholders.
-   */
   private async prompt(name: string): Promise<string> {
     const candidates = [
-      join(__dirname, 'prompts', name), // dist/apps/scout/prompts
-      join(__dirname, '..', 'prompts', name), // apps/scout/prompts
+      join(__dirname, 'prompts', name),
+      join(__dirname, '..', 'prompts', name),
     ];
     for (const path of candidates) {
       try {

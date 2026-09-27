@@ -20,7 +20,6 @@ describe('extractJson', () => {
   });
 
   it('tells a truncated answer from a chatty one', () => {
-    // The two faults need different repair prompts, so they need different reasons.
     const truncated = extractJson('{"a":1,"b":{"c":');
     expect(truncated).toMatchObject({ ok: false, reason: 'truncated' });
 
@@ -74,8 +73,6 @@ describe('ScoutReport', () => {
   });
 
   it('rejects the answer OpenCode accepted in our own test', () => {
-    // OpenCode returned {"verdict":123,"bogus":"extra"} against a stricter schema with no
-    // error. See gap 1 in GAPS.md. This check is the only one that runs.
     const result = ScoutReport.safeParse({ verdict: 123, bogus: 'extra' });
     expect(result.success).toBe(false);
   });

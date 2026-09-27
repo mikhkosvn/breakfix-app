@@ -3,7 +3,6 @@ import { ConfigService } from '../config/config.service';
 import { SecretsService } from '../secrets/secrets.service';
 import type { SentryEvent, SentryIssue } from './sentry.types';
 
-/** Selects which event of an issue to read. */
 export type EventSelector = 'latest' | 'oldest' | 'recommended' | (string & {});
 
 @Injectable()
@@ -15,13 +14,6 @@ export class SentryService {
     private readonly secrets: SecretsService,
   ) {}
 
-  /**
-   * Issues seen for the first time in the configured environment.
-   *
-   * Triage calls this on a timer. The `environment` parameter is why we poll instead of
-   * using a webhook: the issue webhook carries no environment field, and the search API
-   * does.
-   */
   async newIssues(withinMinutes: number): Promise<SentryIssue[]> {
     const params = new URLSearchParams({
       environment: this.config.sentryEnvironment,
@@ -33,20 +25,12 @@ export class SentryService {
     );
   }
 
-  /** One issue, with its activity list. Needs the `event:read` scope. */
   async issue(issueId: string): Promise<SentryIssue> {
     return this.get<SentryIssue>(
       `/organizations/${this.config.sentryOrg}/issues/${issueId}/`,
     );
   }
 
-  /**
-   * One event of an issue.
-   *
-   * We read `latest`, not `oldest`. The latest event ran on the newest build, so its
-   * release is the most likely to still exist. An issue that fired quietly for a month has
-   * an oldest event whose build is long gone.
-   */
   async event(
     issueId: string,
     selector: EventSelector = 'latest',
@@ -56,12 +40,6 @@ export class SentryService {
     );
   }
 
-  /**
-   * The event identifier that caused a regression.
-   *
-   * The regression webhook carries no event identifier, so we read the activity list. See
-   * gap 7 in GAPS.md. Returns null when the entry fell off the 100-entry cap.
-   */
   async regressionEventId(issueId: string): Promise<string | null> {
     const issue = await this.issue(issueId);
     const entry = (issue.activity ?? []).find(
@@ -70,7 +48,6 @@ export class SentryService {
     return entry?.data?.event_id ?? null;
   }
 
-  /** The distributed trace of an event. Needs the `org:read` scope. */
   async trace(traceId: string, errorEventId?: string): Promise<unknown> {
     const params = new URLSearchParams({ statsPeriod: '7d' });
     if (errorEventId) params.set('errorId', errorEventId);
@@ -79,7 +56,6 @@ export class SentryService {
     );
   }
 
-  /** Logs belonging to one trace. Needs the `org:read` scope. */
   async logs(traceId: string): Promise<unknown> {
     const params = new URLSearchParams({
       dataset: 'logs',
@@ -93,14 +69,6 @@ export class SentryService {
     );
   }
 
-  // ---------------------------------------------------------------------------------------
-
-  /**
-   * One request against the Sentry API.
-   *
-   * Retries on HTTP 429. The issue endpoint allows 5 requests each second for one
-   * organization. See gap 8 in GAPS.md.
-   */
   private async get<T>(path: string, attempt = 1): Promise<T> {
     const token = await this.secrets.sentryToken();
     const url = `${this.config.sentryBaseUrl}/api/0${path}`;

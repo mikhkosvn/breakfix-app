@@ -244,6 +244,52 @@ Add a shared limiter and a retry with backoff when we raise concurrency.
 
 ---
 
+## 9. TypeScript is pinned to 6.0.3, below the newest release
+
+**Severity: low. Two tools set this ceiling, not us.**
+
+### What we expected
+
+This is a new project. We expected every dependency at its newest release.
+
+### What happens
+
+TypeScript 7.0.2 exists and we cannot use it. Two tools block it, for two different reasons.
+
+**The Nest command-line tool refuses to build.** Its message:
+
+> The installed TypeScript version (7.0.2) does not expose the programmatic compiler API
+> that the Nest CLI requires. TypeScript 7.0 ships the "tsc" executable only. The compiler
+> API is expected to return in 7.1. Please install TypeScript 6.
+
+**The lint tool agrees, independently.** `typescript-eslint` 8.70.1 is its newest release. Its
+peer range for TypeScript is `>=4.8.4 <6.1.0`.
+
+So the ceiling is **6.0.3**, the newest release below 6.1.0.
+
+### What TypeScript 6 changed, and what we did
+
+Three defaults changed. Each one broke the build until we set it.
+
+1. **It no longer includes every `@types` package on its own.** Set
+   `"types": ["node", "jest"]` in the root `tsconfig.json`. Warning: naming one package
+   removes all the others. A list with `node` alone silently removes the Jest types, and
+   every test matcher then reports as an unsafe call.
+2. **It requires `rootDir` whenever `outDir` is set.** We set `"rootDir": "./"`.
+3. **It deprecates `baseUrl`, which stops working in TypeScript 7.** We removed it, and we
+   removed the empty `paths` object with it.
+
+### When this gap closes
+
+Check both tools when you next raise versions:
+
+1. TypeScript 7.1 returns the compiler API. Then the Nest command-line tool can use it.
+2. `typescript-eslint` raises its peer range above 6.1.0.
+
+Both must be true. Raising TypeScript alone breaks the build.
+
+---
+
 ## How to use this file
 
 Add a gap when a tool does not do what its name says, and we write code to fill the hole.

@@ -14,7 +14,6 @@ export type Usage = {
 };
 
 export type AgentTurn = {
-  /** Everything the agent wrote as its final answer, joined from the text deltas. */
   text: string;
   usage: Usage;
   toolCalls: number;
@@ -25,7 +24,6 @@ export type TurnOptions = {
   systemPrompt: string;
   taskPrompt: string;
   workDir: string;
-  /** Called on every harness event. This is the heartbeat. */
   onPulse: (phase: Phase) => void;
 };
 
@@ -40,13 +38,6 @@ export class OpenCodeService {
     private readonly secrets: SecretsService,
   ) {}
 
-  /**
-   * Run one agent turn, from an empty session to a final answer.
-   *
-   * Starts the server, opens a session, sends the prompt, and reads the event stream until
-   * the agent stops. The event stream is also the heartbeat source: every event proves the
-   * agent moved forward.
-   */
   async runTurn(options: TurnOptions): Promise<AgentTurn> {
     const { process: child, baseUrl } = await this.spawn(options.workDir);
     try {
@@ -57,15 +48,6 @@ export class OpenCodeService {
     }
   }
 
-  // ---------------------------------------------------------------------------------------
-
-  /**
-   * Start `opencode serve` as a child process.
-   *
-   * The environment is an explicit allowlist. We never spread `process.env`, because the
-   * agent runs shell commands and every variable of this process would be readable. That
-   * includes the task role path on AWS Fargate.
-   */
   private async spawn(
     workDir: string,
   ): Promise<{ process: ChildProcess; baseUrl: string }> {
@@ -84,19 +66,13 @@ export class OpenCodeService {
         cwd: workDir,
         env: {
           PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-          // OpenCode creates its state directories at import time. A read-only home makes
-          // the process fail before it prints anything useful.
           HOME: process.env.HOME ?? '/home/agent',
 
-          // The target repository is untrusted input, exactly like the Sentry payload.
-          // Without the first two, OpenCode loads the repository's own configuration and
-          // its skills, and it writes three files into our clone. See gap 5 in GAPS.md.
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
           OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
           OPENCODE_DISABLE_AUTOUPDATE: 'true',
           OPENCODE_DISABLE_MODELS_FETCH: 'true',
 
-          // The whole configuration travels inline, so nothing on disk can change it.
           OPENCODE_CONFIG_CONTENT: JSON.stringify(this.buildConfig(apiKey)),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -108,11 +84,6 @@ export class OpenCodeService {
     return { process: child, baseUrl };
   }
 
-  /**
-   * Wait for the line the server prints when it is ready.
-   *
-   * The official helper waits 5 seconds. A cold container needs longer, so we wait 60.
-   */
   private waitForListening(
     child: ChildProcess,
     timeoutMs = 60_000,
@@ -153,21 +124,6 @@ export class OpenCodeService {
     });
   }
 
-  /**
-   * The configuration scout gives OpenCode.
-   *
-   * Two rules decide the shape of the permission block, and both were proved by running
-   * the binary.
-   *
-   * 1. The wildcard must come first. The merge keeps a key where it first appeared, so a
-   *    wildcard written last denies everything.
-   * 2. A tool is removed only by the plain string `"deny"`. A pattern map leaves the tool
-   *    visible to the model and blocks it at call time instead.
-   *
-   * Never write `"ask"`. In server mode an `ask` rule waits for an answer that cannot
-   * arrive, and the wait has no timeout. `doom_loop` defaults to `"ask"`, so we must set
-   * it. See gap 4 in GAPS.md.
-   */
   private buildConfig(apiKey: string | undefined): Record<string, unknown> {
     const model = this.config.model;
     return {
@@ -216,14 +172,6 @@ export class OpenCodeService {
     return session.id;
   }
 
-  /**
-   * Send the prompt and read the event stream until the agent stops.
-   *
-   * We use the v2 routes. They carry named events for each tool call, and the per-session
-   * stream can resume after a restart. They have no schema-constrained output, so the
-   * agent writes the JSON object in its final message and scout validates it. See gap 2 in
-   * GAPS.md.
-   */
   private async drive(
     baseUrl: string,
     sessionId: string,
@@ -257,7 +205,6 @@ export class OpenCodeService {
     if (!stream.ok || !stream.body)
       throw new Error(`Could not open the event stream: HTTP ${stream.status}`);
 
-    // Send the prompt after the stream is open, so no event is lost.
     await this.prompt(baseUrl, sessionId, options);
 
     let idleSince: number | null = null;
@@ -266,7 +213,6 @@ export class OpenCodeService {
         const event = parseEvent(frame);
         if (!event) continue;
 
-        // Every event is a heartbeat. The phase decides how long silence may last.
         options.onPulse(phaseOf(event.type));
 
         switch (event.known?.type) {
@@ -283,7 +229,6 @@ export class OpenCodeService {
             break;
 
           case 'session.next.step.ended': {
-            // The v2 tokens object has no `total` key. Sum the parts.
             const tokens = event.known.data.tokens;
             usage.input += tokens.input ?? 0;
             usage.output += tokens.output ?? 0;
@@ -299,8 +244,6 @@ export class OpenCodeService {
           }
         }
 
-        // `session.idle` can arrive before the last tool settles. Wait for a quiet period
-        // rather than closing the stream on the first idle event.
         if (event.type === 'session.idle') {
           idleSince = Date.now();
         } else if (event.known?.type === 'session.status') {
@@ -351,12 +294,6 @@ export class OpenCodeService {
     }).catch(() => undefined);
   }
 
-  /**
-   * Read a Server-Sent Events body.
-   *
-   * The framing carries no `event:` line and no `id:` line. Every message is `data: <json>`
-   * followed by a blank line, so we route on the JSON `type` field.
-   */
   private async *readEvents(
     body: ReadableStream<Uint8Array>,
   ): AsyncGenerator<Record<string, unknown>> {

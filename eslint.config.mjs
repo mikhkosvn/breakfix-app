@@ -6,8 +6,6 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    // `dist` holds build output. Linting it reports parse errors for every file, because
-    // the compiled JavaScript belongs to no TypeScript project.
     ignores: ['eslint.config.mjs', 'dist/**', 'node_modules/**', 'coverage/**'],
   },
   eslint.configs.recommended,
@@ -31,7 +29,7 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
 );

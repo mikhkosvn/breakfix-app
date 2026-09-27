@@ -1,17 +1,9 @@
 import { z } from 'zod';
 
-/**
- * The object the agent must return.
- *
- * Warning: OpenCode does not check the agent answer against any schema. See gap 1 in
- * GAPS.md. This file is the only check that runs. Do not remove it.
- */
 export const ScoutReport = z
   .object({
-    /** What happens. Mechanical, not a cause. */
     summary: z.string().min(1).max(600),
 
-    /** The first stack frame in our own code. Null is a valid answer. */
     entry_point: z
       .object({
         path: z.string().min(1),
@@ -54,10 +46,6 @@ export const ScoutReport = z
 
 export type ScoutReport = z.infer<typeof ScoutReport>;
 
-/**
- * The JSON Schema we put in the prompt. Generated from the same Zod object, so the two can
- * never drift apart.
- */
 export function scoutReportJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(ScoutReport, { io: 'output' });
 }

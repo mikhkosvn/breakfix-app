@@ -6,23 +6,6 @@ export type ExtractResult =
       detail: string;
     };
 
-/**
- * Pull one JSON object out of an agent's final message.
- *
- * We need this because the v2 OpenCode route has no schema-constrained output, so the
- * agent writes the object as plain text. See gap 2 in GAPS.md.
- *
- * The prompt tells the agent to answer with the object and nothing else. Models do not
- * always obey, so this handles three real cases:
- *
- * 1. The object stands alone. The common case.
- * 2. A code fence wraps it, or prose sits around it.
- * 3. The answer stopped in the middle, because the agent reached a limit.
- *
- * Case 3 gets its own reason, because a truncated answer and a chatty answer need
- * different repair prompts. A truncated answer means "answer again, shorter". A chatty
- * answer means "answer again, with no prose".
- */
 export function extractJson(text: string): ExtractResult {
   const trimmed = text.trim();
   if (trimmed.length === 0)
@@ -54,7 +37,6 @@ export function extractJson(text: string): ExtractResult {
   }
 }
 
-/** Index of the brace that closes the one at `start`, or -1 when it never closes. */
 function matchingBrace(text: string, start: number): number {
   let depth = 0;
   let inString = false;
